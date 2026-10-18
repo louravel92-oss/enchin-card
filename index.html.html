@@ -496,6 +496,10 @@
         .inapp-banner.show { display: flex; }
         .inapp-banner span { flex: 1; }
         .inapp-banner button { border: 0; border-radius: 12px; padding: 7px 10px; font-weight: 800; font-size: 12px; background: #fff; color: #6b4b00; box-shadow: 0 2px 0 #ffd54a; cursor: pointer; }
+        .after-save { display: none; margin-top: 16px; padding: 12px; border: 3px dashed var(--blush); border-radius: 20px; background: #fff9fc; text-align: center; }
+        .after-save.show { display: block; }
+        .after-save-text { font-size: 12px; font-weight: 800; color: var(--ink); line-height: 1.5; margin-bottom: 10px; }
+        .after-save img { width: auto; max-width: 70%; border-radius: 14px; box-shadow: 0 4px 0 rgba(91,63,140,0.12); -webkit-touch-callout: default; user-select: auto; }
         .save-modal { position: fixed; inset: 0; z-index: 1200; display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(60,30,90,0.55); }
         .save-modal.show { display: flex; }
         .save-box { width: 100%; max-width: 380px; max-height: 92vh; overflow-y: auto; background: #fff; border: 4px solid #fff; border-radius: 26px; padding: 18px; box-shadow: 0 0 0 3px var(--lav), 0 16px 40px rgba(0,0,0,0.3); text-align: center; }
@@ -685,6 +689,10 @@
 
             <div class="btn-row"><button class="btn-sm" onclick="resetAll()">🔄 Reset All</button></div>
             <button class="btn-dl" onclick="downloadCard()">⬇️ Download My Card!</button>
+            <div class="after-save" id="afterSave">
+                <div class="after-save-text">✓ Downloaded! Can’t find it? <b>Press &amp; hold</b> the card below, then tap <b>Download image</b> / <b>Save image</b> 📲</div>
+                <img id="afterSaveImg" alt="Your finished card">
+            </div>
         </div>
     </div>
 
@@ -693,6 +701,7 @@
         Fan-made with 💕 for ENGENEs<br>
         Not affiliated with BELIFT LAB or HYBE<br>
         <a href="#">ENHYPEN Forever! 🧡</a>
+    <div style="margin-top:10px;font-size:10px;opacity:.55;">v9 · direct download</div>
     </div>
 </div>
 
@@ -1686,23 +1695,16 @@ function downloadCard() {
         loading.classList.remove('active');
         if (!blob) { showToast('⚠️ Could not make the image, please try again'); return; }
         const file = new File([blob], name, { type: 'image/png' });
-        // iPhone/iPad can only put a picture into Photos through the share sheet; everything else downloads straight away
-        const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        if (ios && navigator.canShare && navigator.canShare({ files: [file] })) {
-            try {
-                await navigator.share({ files: [file], title: 'My ENCHIN vote card' });
-                showToast('✓ Card ready! 🌸');
-                return;
-            } catch (e) {
-                if (e && e.name === 'AbortError') return; // closed the share sheet
-            }
-        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = name;
         document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
-        showToast('✓ Card downloaded! 🌸');
+        if (window._lastCardUrl) URL.revokeObjectURL(window._lastCardUrl);
+        window._lastCardUrl = url;
+        // safety net: show the finished card so it can also be saved by pressing & holding it
+        document.getElementById('afterSaveImg').src = url;
+        document.getElementById('afterSave').classList.add('show');
+        showToast(/Android/i.test(navigator.userAgent) ? '✓ Saved! Look in Gallery → Download album 🌸' : '✓ Card downloaded! 🌸');
     }, 'image/png');
 }
 
