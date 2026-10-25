@@ -1870,6 +1870,33 @@ function directDownload(blob, name) {
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 30000);
 }
 
+// X / Twitter (and some feeds) crop portrait images taller than 3:4 in the timeline.
+// The card is 2:3, so we put it on a slightly wider canvas (side margins) so nothing gets cut.
+function makeExportCanvas(src) {
+    const H = src.height;
+    const W = Math.ceil(H * 0.8);            // 4:5 -> shown in full on X timeline
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    const c = out.getContext('2d');
+    // soft blurred backdrop made from the card itself (blur by down/up-scaling, works on every browser)
+    const tiny = document.createElement('canvas');
+    tiny.width = 18; tiny.height = Math.max(1, Math.round(18 * H / W));
+    const t = tiny.getContext('2d');
+    t.imageSmoothingEnabled = true; t.imageSmoothingQuality = 'high';
+    t.drawImage(src, 0, 0, tiny.width, tiny.height);
+    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    c.drawImage(tiny, 0, 0, W, H);
+    c.fillStyle = 'rgba(255,255,255,0.18)'; c.fillRect(0, 0, W, H);
+    // the untouched card, centered
+    const x = Math.round((W - src.width) / 2);
+    c.save();
+    c.shadowColor = 'rgba(40,20,80,0.35)'; c.shadowBlur = 24;
+    c.drawImage(src, x, 0);
+    c.restore();
+    c.drawImage(src, x, 0);
+    return out;
+}
+
 function downloadCard() {
     if (!usernameOK()) {
         flagUsernameMissing();
@@ -1888,7 +1915,7 @@ function downloadCard() {
     const canvas = document.getElementById('previewCanvas');
     const name = `ENHYPEN_ENCHIN_${state.selectedEnchin}_${Date.now()}.png`;
     let blob;
-    try { blob = canvasToBlobSync(canvas); }
+    try { blob = canvasToBlobSync(makeExportCanvas(canvas)); }
     catch (e) { showToast('⚠️ Could not make the image, please try again'); return; }
     const file = new File([blob], name, { type: 'image/png' });
     const canShareFile = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] }));
