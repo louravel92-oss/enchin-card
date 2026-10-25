@@ -596,7 +596,7 @@
                 </div>
             </div>
             <div class="preview-wrap" id="previewWrap">
-                <canvas id="previewCanvas" width="720" height="1092"></canvas>
+                <canvas id="previewCanvas" width="720" height="940"></canvas>
             </div>
             <div class="hist-btns">
                 <button type="button" class="hist-btn" id="undoBtn" onclick="undo()" title="Undo" aria-label="Undo" disabled>↶</button>
@@ -926,13 +926,11 @@ function drawCuteBg(ctx, W, H, theme) {
     pts.forEach(([x, y], i) => {
         const rot = ((i * 37) % 17 - 8) * Math.PI / 180;
         if (spooky) drawOrn(ctx, SPK[i % SPK.length], x, y, 15, rot, '#FFD36B', '#2a1450');
-        else if (imgs.length) {
+        else if (false) {
             const im = imgs[i % imgs.length], k = 42 / Math.max(im.naturalWidth, im.naturalHeight), w = im.naturalWidth * k, hh = im.naturalHeight * k;
             ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(im, -w / 2, -hh / 2, w, hh); ctx.restore();
-        } else drawOrn(ctx, ['heart', 'star', 'spark'][i % 3], x, y, 12, rot, '#FFE24A', '#B0206A');
+        }
     });
-    ctx.setLineDash([10, 9]); ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    roundRect(ctx, 9, 9, W - 18, H - 18, 28); ctx.stroke();
     ctx.restore();
 }
 
@@ -1685,6 +1683,7 @@ function renderPreview() {
     const g = theme.grads[state.bgVariant];
     const cs = variantScheme(theme, state.bgVariant);
 
+    const drawScene = (ctx, W, H) => {
     ctx.clearRect(0, 0, W, H);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -1718,12 +1717,38 @@ function renderPreview() {
     doodleHeart(ctx, 28, 970, 28, '#ff6fa9', 0.2);
     doodleHeart(ctx, 688, 1048, 30, '#ff6fa9', -0.2);
     drawCuteBg(ctx, W, H, theme);
+    };
+
+    // Scene is designed at 720x1092. To get a shorter card (3:4-ish, so X/Twitter does not crop it)
+    // we cut SH px out of the middle (only the thin side margins are visible there) and blend the seam.
+    const DH = 1092, SH = 152, CUTY = 520, OV = 80;
+    const off = renderPreview._off || (renderPreview._off = document.createElement('canvas'));
+    off.width = W; off.height = DH;
+    drawScene(off.getContext('2d'), W, DH);
+    ctx.clearRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(off, 0, 0, W, CUTY + OV, 0, 0, W, CUTY + OV);
+    const sy = CUTY + SH - OV, bh = DH - sy;
+    const bot = renderPreview._bot || (renderPreview._bot = document.createElement('canvas'));
+    bot.width = W; bot.height = bh;
+    const bc = bot.getContext('2d');
+    bc.drawImage(off, 0, sy, W, bh, 0, 0, W, bh);
+    // one single mask over the whole piece: transparent at the top edge, fully opaque after the blend zone
+    // (destination-in clears everything outside the filled shape, so it must be one full-size fill)
+    const ramp = bc.createLinearGradient(0, 0, 0, bh);
+    ramp.addColorStop(0, 'rgba(0,0,0,0)');
+    ramp.addColorStop(Math.min(1, OV * 2 / bh), 'rgba(0,0,0,1)');
+    ramp.addColorStop(1, 'rgba(0,0,0,1)');
+    bc.globalCompositeOperation = 'destination-in';
+    bc.fillStyle = ramp; bc.fillRect(0, 0, W, bh);
+    ctx.drawImage(bot, 0, CUTY - OV);
 
     // --- Teks atas
     cuteText(ctx, "Engene, let's make it happen!", W / 2, 48, 38, cs.head, cs.outline);
 
     // --- Kartu sertifikat
-    const cardX = 57, cardY = 88, cardW = 606, cardH = 922, cardR = 40;
+    const cardX = 100, cardY = 86, cardW = 520, cardH = 790, cardR = 34;
     ctx.save();
     ctx.shadowColor = 'rgba(30,20,60,0.30)';
     ctx.shadowBlur = 16;
@@ -1832,6 +1857,8 @@ function renderPreview() {
             const h = w * si.naturalHeight / si.naturalWidth;
             if (x === 'R') x = W - w - 2;
             if (y === 'B') y = H - h - 2;
+            else if (y >= CUTY + SH) y -= SH;
+            else if (y > CUTY) y = CUTY;
             ctx.save();
             ctx.translate(x + w / 2, y + h / 2);
             ctx.rotate(rot * Math.PI / 180);
@@ -1840,10 +1867,16 @@ function renderPreview() {
         });
     }
 
-    if (state.bgVariant >= 12) spookyFront(ctx, W, H, BG_PATTERNS[state.bgVariant]);
+    if (state.bgVariant >= 12) {
+        const fo = renderPreview._front || (renderPreview._front = document.createElement('canvas'));
+        fo.width = W; fo.height = DH;
+        spookyFront(fo.getContext('2d'), W, DH, BG_PATTERNS[state.bgVariant]);
+        ctx.drawImage(fo, 0, 0, W, CUTY, 0, 0, W, CUTY);
+        ctx.drawImage(fo, 0, CUTY + SH, W, DH - CUTY - SH, 0, CUTY, W, DH - CUTY - SH);
+    }
 
     // --- Teks bawah
-    cuteText(ctx, '#ENHYPEN #2026MAMAVOTE', W / 2, 1052, 34, cs.head, cs.outline);
+    cuteText(ctx, '#ENHYPEN #2026MAMAVOTE', W / 2, 900, 34, cs.head, cs.outline);
 }
 
 // ==================== DOWNLOAD / SAVE TO GALLERY ====================
@@ -1870,33 +1903,6 @@ function directDownload(blob, name) {
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 30000);
 }
 
-// X / Twitter (and some feeds) crop portrait images taller than 3:4 in the timeline.
-// The card is 2:3, so we put it on a slightly wider canvas (side margins) so nothing gets cut.
-function makeExportCanvas(src) {
-    const H = src.height;
-    const W = Math.ceil(H * 0.8);            // 4:5 -> shown in full on X timeline
-    const out = document.createElement('canvas');
-    out.width = W; out.height = H;
-    const c = out.getContext('2d');
-    // soft blurred backdrop made from the card itself (blur by down/up-scaling, works on every browser)
-    const tiny = document.createElement('canvas');
-    tiny.width = 18; tiny.height = Math.max(1, Math.round(18 * H / W));
-    const t = tiny.getContext('2d');
-    t.imageSmoothingEnabled = true; t.imageSmoothingQuality = 'high';
-    t.drawImage(src, 0, 0, tiny.width, tiny.height);
-    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
-    c.drawImage(tiny, 0, 0, W, H);
-    c.fillStyle = 'rgba(255,255,255,0.18)'; c.fillRect(0, 0, W, H);
-    // the untouched card, centered
-    const x = Math.round((W - src.width) / 2);
-    c.save();
-    c.shadowColor = 'rgba(40,20,80,0.35)'; c.shadowBlur = 24;
-    c.drawImage(src, x, 0);
-    c.restore();
-    c.drawImage(src, x, 0);
-    return out;
-}
-
 function downloadCard() {
     if (!usernameOK()) {
         flagUsernameMissing();
@@ -1915,7 +1921,7 @@ function downloadCard() {
     const canvas = document.getElementById('previewCanvas');
     const name = `ENHYPEN_ENCHIN_${state.selectedEnchin}_${Date.now()}.png`;
     let blob;
-    try { blob = canvasToBlobSync(makeExportCanvas(canvas)); }
+    try { blob = canvasToBlobSync(canvas); }
     catch (e) { showToast('⚠️ Could not make the image, please try again'); return; }
     const file = new File([blob], name, { type: 'image/png' });
     const canShareFile = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] }));
@@ -2012,7 +2018,6 @@ function copyPageLink() {
             [mix(A,.9), mix(A,.7), mix(P,.6)], [G[1][0], mix(A,.6), G[4][2]], [G[2][1], G[5][1], mix(P,.4)]
         ]);
         t.grads[12] = ['#141a4a', '#2b2a6e', '#4a2a78']; t.grads[13] = ['#0f2a3f', '#1d4f63', '#2a7a85']; t.grads[14] = ['#2a1a5e', '#4b2a8a', '#7a3fa8'];
-        t.stickers = [];
     });
 })();
 applyPageTheme(null);
