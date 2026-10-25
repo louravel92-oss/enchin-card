@@ -1846,7 +1846,30 @@ function renderPreview() {
     cuteText(ctx, '#ENHYPEN #2026MAMAVOTE', W / 2, 1052, 34, cs.head, cs.outline);
 }
 
-// ==================== DOWNLOAD ====================
+// ==================== DOWNLOAD / SAVE TO GALLERY ====================
+// Platform check (iPadOS reports itself as a Mac, so we also look at touch points)
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+const IS_INAPP = /; wv\)|FBAN|FBAV|Instagram|Line\/|Telegram|WhatsApp|MicroMessenger|TikTok|Claude/i.test(navigator.userAgent);
+
+// canvas -> Blob synchronously (no async toBlob), so the share sheet / download
+// still counts as a direct tap of the user (needed by iOS Safari & Chrome)
+function canvasToBlobSync(canvas) {
+    const b64 = canvas.toDataURL('image/png').split(',')[1];
+    const bin = atob(b64), len = bin.length, u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: 'image/png' });
+}
+
+// normal file download: goes to Downloads, and Android gallery apps list it automatically
+function directDownload(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.rel = 'noopener'; a.style.display = 'none';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 30000);
+}
+
 function downloadCard() {
     if (!usernameOK()) {
         flagUsernameMissing();
@@ -1862,42 +1885,65 @@ function downloadCard() {
     }
 
     renderPreview();
-    const loading = document.getElementById('loading');
-    loading.classList.add('active');
     const canvas = document.getElementById('previewCanvas');
     const name = `ENHYPEN_ENCHIN_${state.selectedEnchin}_${Date.now()}.png`;
-    canvas.toBlob(async blob => {
-        loading.classList.remove('active');
-        if (!blob) { showToast('⚠️ Could not make the image, please try again'); return; }
-        const file = new File([blob], name, { type: 'image/png' });
-        const phone = window.matchMedia('(pointer: coarse)').matches;
-        // phone: open the share sheet so the card can be saved straight to the gallery / Photos
-        if (phone && navigator.canShare && navigator.canShare({ files: [file] })) {
-            try {
-                await navigator.share({ files: [file], title: 'My ENCHIN vote card' });
-                showToast('✓ Card ready! 🌸');
-                return;
-            } catch (e) {
-                if (e && e.name === 'AbortError') return; // closed the share sheet
-            }
+    let blob;
+    try { blob = canvasToBlobSync(canvas); }
+    catch (e) { showToast('⚠️ Could not make the image, please try again'); return; }
+    const file = new File([blob], name, { type: 'image/png' });
+    const canShareFile = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] }));
+
+    // --- iPhone / iPad: Safari cannot write to Photos by itself, the share sheet
+    //     ("Save Image") is the shortest way to put it straight into Photos.
+    if (IS_IOS) {
+        if (canShareFile) {
+            navigator.share({ files: [file] }).then(
+                () => showToast('✓ Choose “Save Image” to put it in Photos 🌸'),
+                e => { if (!(e && e.name === 'AbortError')) openSaveModal(blob, name); }
+            );
+        } else {
+            openSaveModal(blob, name);
         }
-        if (phone) { openSaveModal(blob, name); return; }
-        // computer: normal download
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = name;
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
-        showToast('✓ Card downloaded! 🌸');
-    }, 'image/png');
+        return;
+    }
+
+    // --- Android phone / tablet: a plain download lands in the Download folder,
+    //     and Gallery / Google Photos pick it up automatically. No extra steps.
+    //     Inside in-app browsers downloads are blocked, so use share sheet / modal there.
+    if (IS_ANDROID) {
+        if (IS_INAPP) {
+            if (canShareFile) {
+                navigator.share({ files: [file] }).then(
+                    () => showToast('✓ Card ready! 🌸'),
+                    e => { if (!(e && e.name === 'AbortError')) openSaveModal(blob, name); }
+                );
+            } else openSaveModal(blob, name);
+            return;
+        }
+        directDownload(blob, name);
+        showToast('✓ Saved! Check your Gallery (Download album) 🌸');
+        return;
+    }
+
+    // --- Windows / Mac / Linux (and Windows tablets): normal download
+    directDownload(blob, name);
+    showToast('✓ Card downloaded! 🌸');
 }
 
-// fallback on phones without the share sheet: show the card so it can be pressed & held to save
+// last fallback: show the card so it can be pressed & held to save
 function openSaveModal(blob, name) {
     const url = URL.createObjectURL(blob);
     document.getElementById('saveImg').src = url;
     const link = document.getElementById('saveLink');
     link.href = url; link.download = name;
+    const hint = document.querySelector('.save-hint');
+    if (IS_IOS) {
+        hint.innerHTML = 'Press &amp; hold the picture, then choose <b>Add to Photos</b> 🌸';
+        link.style.display = 'none';
+    } else {
+        hint.innerHTML = 'Tap <b>Download file</b>, or press &amp; hold the picture and choose <b>Download image</b> 🌸';
+        link.style.display = 'block';
+    }
     document.getElementById('saveModal').classList.add('show');
 }
 function closeSaveModal() { document.getElementById('saveModal').classList.remove('show'); }
